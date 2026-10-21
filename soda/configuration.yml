@@ -1,0 +1,7 @@
+# Soda Core Datasource Configuration for Vanguard Lakehouse
+# Connects directly to the conformed DuckDB lakehouse storage
+
+data_source lakehouse:
+  type: duckdb
+  path: dbt_transforms/iceflow_lakehouse.duckdb
+  schema: main_silver

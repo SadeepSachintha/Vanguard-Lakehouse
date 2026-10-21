@@ -1,4 +1,4 @@
-.PHONY: help up down init-buckets ingest iceberg-write dbt-run dbt-test dbt-snapshot contract-gate time-travel-audit olap pipeline clean
+.PHONY: help up down init-buckets ingest iceberg-write dbt-run dbt-test dbt-snapshot contract-gate test-contracts soda-scan time-travel-audit olap pipeline clean
 
 HAS_VENV := $(shell test -f "$(CURDIR)/.venv/bin/python" && echo yes)
 ifeq ($(HAS_VENV),yes)
@@ -11,8 +11,10 @@ endif
 
 help:
 	@echo "=========================================================================="
-	@echo "  IceFlow Core: Enterprise Open Data Lakehouse Makefile Commands"
+	@echo "  Vanguard-Lakehouse: Data Contracts, Quality & Gatekeeping Pipeline"
 	@echo "=========================================================================="
+	@echo "  make test-contracts    - Run local developer CI quality gate CLI harness"
+	@echo "  make soda-scan         - Execute Soda Core schema, SLA, and anomaly checks"
 	@echo "  make up                - Start MinIO and Nessie Catalog containers"
 	@echo "  make down              - Stop all running lakehouse containers"
 	@echo "  make init-buckets      - Provision MinIO bronze, silver, gold, warehouse buckets"
@@ -59,6 +61,15 @@ contract-gate:
 		--db dbt_transforms/iceflow_lakehouse.duckdb \
 		--contracts-yml dbt_transforms/models/marts/_marts_models.yml \
 		--threshold 50.0
+
+test-contracts:
+	bash scripts/run_quality_gate.sh
+
+soda-scan:
+	$(PYTHON) soda/soda_runner.py \
+		--db dbt_transforms/iceflow_lakehouse.duckdb \
+		--checks soda/checks_commodities.yml \
+		--config soda/configuration.yml
 
 time-travel-audit:
 	$(PYTHON) analytics/query_time_travel_duckdb.py \

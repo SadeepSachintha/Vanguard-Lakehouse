@@ -1,0 +1,103 @@
+# ==============================================================================
+# Soda Core Data Quality & Statistical Anomaly Gatekeeping Specification
+# Target: stg_cbsl_commodity_prices (Silver Conformed Tier)
+# ==============================================================================
+
+checks for stg_cbsl_commodity_prices:
+  # 1. Schema Validation Contract: Forbid unexpected columns & enforce vetted schema
+  - schema:
+      name: Assert Strict Contract Schema (Forbid Unexpected Upstream Keys)
+      fail:
+        when forbidden column present:
+          - unvetted_payload
+          - raw_json
+          - scraper_debug_payload
+          - temporary_field
+          - unparsed_blob
+        when wrong column type:
+          commodity_sk: varchar
+          recorded_date: date
+          commodity_code: varchar
+          commodity_name: varchar
+          market_location: varchar
+          retail_price_lkr: decimal(10,2)
+          wholesale_price_lkr: decimal(10,2)
+          ingested_at: timestamp
+        when required column missing:
+          - commodity_sk
+          - recorded_date
+          - commodity_code
+          - commodity_name
+          - market_location
+          - retail_price_lkr
+          - wholesale_price_lkr
+          - ingested_at
+
+  # 2. Freshness SLA Contract: Assert max(recorded_date) is within 24 hours of current run
+  - freshness(recorded_date) < 24h:
+      name: Assert Freshness SLA - Telemetry Received Within 24 Hours
+
+  # 3. Volume & Baseline Anomaly Detection: Row count drop assertion (<20% drop from 7-day rolling baseline)
+  - row_count > 0:
+      name: Assert Non-Empty Commodity Table
+  - failed rows:
+      name: Assert Row Count Volume Drift (<20% drop from 7-day baseline)
+      fail query: |
+        WITH daily_counts AS (
+          SELECT
+            recorded_date,
+            COUNT(*) as daily_volume,
+            AVG(COUNT(*)) OVER (
+              ORDER BY recorded_date
+              ROWS BETWEEN 7 PRECEDING AND 1 PRECEDING
+            ) as rolling_7d_avg
+          FROM stg_cbsl_commodity_prices
+          GROUP BY recorded_date
+        )
+        SELECT
+          recorded_date,
+          daily_volume,
+          ROUND(rolling_7d_avg, 2) as rolling_7d_avg,
+          ROUND(((daily_volume - rolling_7d_avg) / rolling_7d_avg) * 100.0, 2) as volume_drop_pct
+        FROM daily_counts
+        WHERE rolling_7d_avg IS NOT NULL
+          AND rolling_7d_avg > 0
+          AND daily_volume < (rolling_7d_avg * 0.80)
+
+  # 4. Statistical Distribution & Financial Bounds
+  - min(retail_price_lkr) > 0:
+      name: Assert Retail Price Is Strictly Positive (> 0 LKR)
+  - min(wholesale_price_lkr) > 0:
+      name: Assert Wholesale Price Is Strictly Positive (> 0 LKR)
+  - missing_count(commodity_sk) = 0:
+      name: Assert Zero Null Primary Keys
+  - duplicate_count(commodity_sk) = 0:
+      name: Assert Zero Duplicate Primary Keys
+
+  # Critical Anomaly Gate: Flag single-day price movement (Delta > 50%) as critical anomaly
+  - failed rows:
+      name: Critical Anomaly Alert - Single-Day Price Movement Exceeds 50%
+      fail query: |
+        WITH price_trends AS (
+          SELECT
+            commodity_code,
+            market_location,
+            recorded_date,
+            wholesale_price_lkr,
+            LAG(wholesale_price_lkr) OVER (
+              PARTITION BY commodity_code, market_location
+              ORDER BY recorded_date
+            ) as prev_day_wholesale
+          FROM stg_cbsl_commodity_prices
+        )
+        SELECT
+          commodity_code,
+          market_location,
+          recorded_date,
+          prev_day_wholesale,
+          wholesale_price_lkr,
+          ROUND(((wholesale_price_lkr - prev_day_wholesale) / prev_day_wholesale) * 100.0, 2) as dod_delta_pct
+        FROM price_trends
+        WHERE prev_day_wholesale IS NOT NULL
+          AND prev_day_wholesale > 0
+          AND ABS((wholesale_price_lkr - prev_day_wholesale) / prev_day_wholesale) > 0.50

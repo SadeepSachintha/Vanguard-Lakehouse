@@ -1,0 +1,108 @@
+{
+  "$schema": "https://datacontract.com/datacontract.schema.json",
+  "dataContractSpecification": "0.9.3",
+  "id": "urn:datacontract:vanguard:lakehouse:stg_cbsl_commodity_prices",
+  "info": {
+    "title": "Central Bank of Sri Lanka (CBSL) Commodity Prices Data Contract",
+    "version": "1.0.0",
+    "description": "Enforced Silver-tier conformed market prices contract for agricultural and food commodities across Sri Lankan trading hubs.",
+    "owner": "Data Platform Architecture & Financial Analytics Team",
+    "contact": {
+      "name": "Vanguard Lakehouse Data Platform Lead",
+      "email": "data-platform@vanguard-lakehouse.internal"
+    }
+  },
+  "dataset": {
+    "tier": "silver",
+    "physicalName": "stg_cbsl_commodity_prices",
+    "storageFormat": "apache-iceberg",
+    "catalog": "project-nessie",
+    "partitioning": [
+      {
+        "field": "recorded_date",
+        "transform": "month"
+      }
+    ]
+  },
+  "models": {
+    "stg_cbsl_commodity_prices": {
+      "description": "Standardized, deduplicated, and financial-grade commodity observations from CBSL economic centers.",
+      "type": "table",
+      "fields": {
+        "commodity_sk": {
+          "type": "string",
+          "description": "Deterministic SHA-256 surrogate primary key (hash of commodity_id, market_center, trade_date).",
+          "required": true,
+          "primaryKey": true,
+          "unique": true
+        },
+        "recorded_date": {
+          "type": "date",
+          "description": "Official observation trading date in ISO 8601 format (YYYY-MM-DD).",
+          "required": true
+        },
+        "commodity_code": {
+          "type": "string",
+          "description": "CBSL standard commodity identifier slug (e.g., RICE_SAMBA, POTATO_LOCAL).",
+          "required": true
+        },
+        "commodity_name": {
+          "type": "string",
+          "description": "Conformed commodity display title.",
+          "required": true
+        },
+        "market_location": {
+          "type": "string",
+          "description": "Wholesale market economic center (Pettah, Dambulla, Narahenpita, Kandy, Thambuththegama).",
+          "required": true
+        },
+        "retail_price_lkr": {
+          "type": "decimal(10,2)",
+          "description": "Conformed retail consumer price in Sri Lankan Rupees.",
+          "required": true,
+          "minimum": 0.01
+        },
+        "wholesale_price_lkr": {
+          "type": "decimal(10,2)",
+          "description": "Conformed wholesale trading price in Sri Lankan Rupees.",
+          "required": true,
+          "minimum": 0.01
+        },
+        "ingested_at": {
+          "type": "timestamp",
+          "description": "UTC lineage ingestion timestamp marking landing into lakehouse bronze storage.",
+          "required": true
+        }
+      }
+    }
+  },
+  "serviceLevelAgreement": {
+    "freshness": {
+      "maxAge": "24h",
+      "timestampField": "recorded_date"
+    },
+    "availability": "99.9%",
+    "retention": "7 years (Regulatory Audit Standard)"
+  },
+  "quality": [
+    {
+      "type": "customSql",
+      "name": "assert_no_negative_spreads",
+      "description": "Retail price must strictly meet or exceed wholesale price for all market records.",
+      "query": "SELECT COUNT(*) FROM stg_cbsl_commodity_prices WHERE retail_price_lkr < wholesale_price_lkr",
+      "mustBe": 0
+    },
+    {
+      "type": "anomalyDetection",
+      "name": "assert_price_volatility_threshold",
+      "description": "Day-over-day price shifts exceeding 50% must trigger anomaly blocking.",
+      "thresholdPct": 50.0
+    },
+    {
+      "type": "volumeBaseline",
+      "name": "assert_volume_drift",
+      "description": "Daily record volume must not drop more than 20% compared to 7-day rolling average.",
+      "maxDropPct": 20.0
+    }
+  ]
+}

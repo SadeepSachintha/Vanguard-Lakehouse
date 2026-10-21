@@ -1,0 +1,79 @@
+version: 2
+
+models:
+  - name: stg_cbsl_commodity_prices
+    description: >
+      Conformed Silver-tier staging model for Central Bank of Sri Lanka (CBSL) market commodity prices.
+      Governed by an explicit, enforced machine-readable Data Contract to block upstream schema drift,
+      data type mutations, and corrupted telemetry.
+    config:
+      contract:
+        enforced: true
+      tags: ["staging", "cbsl", "commodities"]
+
+    columns:
+      - name: commodity_sk
+        data_type: varchar
+        description: "Deterministic SHA-256 surrogate primary key generated from commodity_id, market_center, and trade_date."
+        constraints:
+          - type: not_null
+          - type: primary_key
+        tests:
+          - unique
+          - not_null
+
+      - name: recorded_date
+        data_type: date
+        description: "Official price observation and trade date (ISO 8601 YYYY-MM-DD)."
+        constraints:
+          - type: not_null
+        tests:
+          - not_null
+
+      - name: commodity_code
+        data_type: varchar
+        description: "Upstream CBSL standardized commodity slug identifier (e.g., RICE_SAMBA, POTATO_LOCAL)."
+        constraints:
+          - type: not_null
+        tests:
+          - not_null
+
+      - name: commodity_name
+        data_type: varchar
+        description: "Human-readable display name of the commodity item."
+        constraints:
+          - type: not_null
+        tests:
+          - not_null
+
+      - name: market_location
+        data_type: varchar
+        description: "Reporting wholesale economic center or market hub (e.g., Pettah, Dambulla, Narahenpita)."
+        constraints:
+          - type: not_null
+        tests:
+          - not_null
+
+      - name: retail_price_lkr
+        data_type: decimal(10,2)
+        description: "Conformed consumer retail price per standard unit (Rs/kg) denominated in LKR."
+        constraints:
+          - type: not_null
+        tests:
+          - not_null
+
+      - name: wholesale_price_lkr
+        data_type: decimal(10,2)
+        description: "Conformed wholesale trading price per standard unit (Rs/kg) denominated in LKR."
+        constraints:
+          - type: not_null
+        tests:
+          - not_null
+
+      - name: ingested_at
+        data_type: timestamp
+        description: "UTC timestamp recording the exact time telemetry entered the Bronze lakehouse tier."
+        constraints:
+          - type: not_null
+        tests:
+          - not_null

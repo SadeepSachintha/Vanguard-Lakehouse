@@ -1,0 +1,113 @@
+name: Data Quality & Contract Gatekeeping CI
+
+on:
+  push:
+    branches: [ main, dev, "feature/**" ]
+  pull_request:
+    branches: [ main ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gatekeeper-pipeline:
+    name: Automated Data Contract & Quality Gate
+    runs-on: ubuntu-latest
+
+    services:
+      minio:
+        image: minio/minio:latest
+        ports:
+          - 9000:9000
+          - 9001:9001
+        env:
+          MINIO_ROOT_USER: admin
+          MINIO_ROOT_PASSWORD: password123
+        options: >-
+          --health-cmd "curl -f http://localhost:9000/minio/health/live || exit 1"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        entrypoint: sh
+        args: ["-c", "minio server /data --console-address :9001"]
+
+      nessie:
+        image: projectnessie/nessie:latest
+        ports:
+          - 19120:19120
+        env:
+          nessie.server.default-branch: main
+          nessie.version.store.type: IN_MEMORY
+        options: >-
+          --health-cmd "curl -f http://localhost:19120/api/v1/config || exit 1"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout Lakehouse Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install Platform Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install dbt-core==1.8.0 dbt-duckdb==1.8.0 duckdb>=1.0.0 pyarrow pyyaml pydantic tabulate requests boto3
+
+      - name: Step 1: Validate dbt Dependencies & Compile Models
+        working-directory: ./dbt_transforms
+        run: |
+          echo "### Compiling dbt lakehouse project..."
+          dbt deps --profiles-dir . || true
+          dbt compile --profiles-dir .
+
+      - name: Step 2: Ingestion Validation (Reject Corrupted Bronze Payloads)
+        run: |
+          echo "### Ingesting and pre-validating Bronze payloads with Pydantic..."
+          python ingestion/cbsl_scraper.py \
+            --start-date 2026-08-01 \
+            --end-date 2026-10-21 \
+            --no-s3
+          python ingestion/write_to_iceberg.py \
+            --branch feature/ci-contract-gate \
+            --maintenance
+
+      - name: Step 3: Run dbt Staging Models with Enforced Contracts
+        working-directory: ./dbt_transforms
+        run: |
+          echo "### Enforcing schema contracts on Staging Silver tier..."
+          dbt run --models tag:staging --profiles-dir .
+          dbt run --profiles-dir .
+
+      - name: Step 4: Run Singular SQL Tests & Referential Integrity Assertions
+        working-directory: ./dbt_transforms
+        run: |
+          echo "### Executing singular domain assertions and integrity tests..."
+          dbt test --profiles-dir .
+
+      - name: Step 5: Execute Soda Core Quality & Anomaly Assertions
+        run: |
+          echo "### Running Soda Core statistical anomalies & schema gatekeeper..."
+          python soda/soda_runner.py \
+            --db dbt_transforms/iceflow_lakehouse.duckdb \
+            --checks soda/checks_commodities.yml \
+            --config soda/configuration.yml
+
+      - name: Step 6: Generate Gatekeeper Markdown Report
+        if: always()
+        run: |
+          echo "## 🛡️ Vanguard Lakehouse CI Quality Gate Summary" >> $GITHUB_STEP_SUMMARY
+          echo "Commit: \`${{ github.sha }}\` | Ref: \`${{ github.ref }}\`" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ job.status }}" == "success" ]; then
+            echo "### 🚀 Gate Status: PASSED (Merge Permitted)" >> $GITHUB_STEP_SUMMARY
+            echo "All enforced dbt model contracts, negative spread tests, and Soda Core statistical distribution checks passed." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "### 🛑 Gate Status: FAILED (Merge Blocked)" >> $GITHUB_STEP_SUMMARY
+            echo "Upstream schema mutation, negative price spread, or statistical anomaly detected. Review the step logs above." >> $GITHUB_STEP_SUMMARY
+          fi
