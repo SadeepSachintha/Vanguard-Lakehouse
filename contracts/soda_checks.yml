@@ -1,0 +1,39 @@
+# Soda Core / Data Contract Gateway Configuration
+# IceFlow Core Lakehouse Quality Assertions
+
+checks for dim_commodities:
+  - row_count > 0
+  - missing_count(commodity_key) = 0
+  - duplicate_count(commodity_key) = 0
+  - missing_count(commodity_id) = 0
+  - duplicate_count(commodity_id) = 0
+  - missing_count(commodity_name) = 0
+
+checks for dim_dates:
+  - row_count >= 365
+  - missing_count(date_key) = 0
+  - duplicate_count(date_key) = 0
+  - missing_count(calendar_date) = 0
+
+checks for dim_provinces:
+  - row_count > 0
+  - missing_count(province_key) = 0
+  - duplicate_count(province_key) = 0
+  - missing_count(market_center) = 0
+
+checks for fct_commodity_prices:
+  - row_count > 0
+  - missing_count(fact_price_key) = 0
+  - duplicate_count(fact_price_key) = 0
+  - missing_count(commodity_key) = 0
+  - missing_count(date_key) = 0
+  - missing_count(province_key) = 0
+  
+  # Metric: Financial Bounds & Non-Negativity
+  - min(wholesale_price_lkr) > 0
+  - min(retail_price_lkr) > 0
+
+  # Anomaly Distribution Gate: Flag anomalies exceeding 50% day-over-day
+  - failed rows:
+      name: Assert Day-over-Day Price Jump Threshold
+      fail condition: abs(day_over_day_price_change_pct) > 50.0 and is_price_spike_anomaly = false

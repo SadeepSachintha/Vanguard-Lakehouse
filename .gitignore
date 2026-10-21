@@ -1,0 +1,33 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# DuckDB database artifacts
+*.duckdb
+*.duckdb.wal
+
+# dbt artifacts
+dbt_transforms/target/
+dbt_transforms/dbt_packages/
+dbt_transforms/logs/
+dbt_transforms/.user.yml
+*.user.yml
+
+# Local warehouse & bronze generated data
+bronze_data/
+iceberg_warehouse/
+
+# OS artifacts
+.DS_Store
+*.swp
+*.swo
+
+# IDE
+.idea/
+.vscode/

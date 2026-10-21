@@ -1,0 +1,37 @@
+version: 2
+
+models:
+  - name: stg_market_commodities
+    description: "Standardized and deduplicated Sri Lanka market commodity price records"
+    columns:
+      - name: commodity_price_surrogate_key
+        description: "Deterministic SHA-256 surrogate key"
+        tests:
+          - unique
+          - not_null
+      - name: commodity_id
+        description: "Commodity slug"
+        tests:
+          - not_null
+      - name: wholesale_price_lkr
+        tests:
+          - not_null
+      - name: retail_price_lkr
+        tests:
+          - not_null
+
+  - name: stg_cbsl_forex
+    description: "Standardized Central Bank of Sri Lanka daily forex rates"
+    columns:
+      - name: forex_tick_surrogate_key
+        description: "Deterministic SHA-256 surrogate key"
+        tests:
+          - unique
+          - not_null
+      - name: currency_code
+        description: "Currency ISO code"
+        tests:
+          - not_null
+      - name: indicative_rate
+        tests:
+          - not_null

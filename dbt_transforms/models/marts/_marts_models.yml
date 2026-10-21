@@ -1,0 +1,191 @@
+version: 2
+
+models:
+  - name: dim_commodities
+    description: "Conformed dimension catalog of agricultural and food commodities"
+    config:
+      contract:
+        enforced: true
+    columns:
+      - name: commodity_key
+        data_type: varchar
+        description: "SHA-256 primary surrogate key of the commodity"
+        tests:
+          - unique
+          - not_null
+      - name: commodity_id
+        data_type: varchar
+        description: "Unique natural business slug identifier"
+        tests:
+          - unique
+          - not_null
+      - name: commodity_name
+        data_type: varchar
+        description: "Standardized commodity name"
+        tests:
+          - not_null
+      - name: commodity_category
+        data_type: varchar
+        description: "Commodity sector classification"
+        tests:
+          - not_null
+      - name: default_unit_of_measure
+        data_type: varchar
+        description: "Standard trading unit (e.g., Rs/kg)"
+      - name: first_recorded_date
+        data_type: date
+        description: "Earliest trade observation date"
+      - name: last_recorded_date
+        data_type: date
+        description: "Most recent trade observation date"
+      - name: total_reporting_days
+        data_type: bigint
+        description: "Total observation day count"
+
+  - name: dim_dates
+    description: "Enterprise calendar date dimension"
+    config:
+      contract:
+        enforced: true
+    columns:
+      - name: date_key
+        data_type: integer
+        description: "Integer date key YYYYMMDD"
+        tests:
+          - unique
+          - not_null
+      - name: calendar_date
+        data_type: date
+        description: "Calendar date"
+        tests:
+          - unique
+          - not_null
+      - name: year_number
+        data_type: bigint
+      - name: quarter_number
+        data_type: bigint
+      - name: month_number
+        data_type: bigint
+      - name: month_name
+        data_type: varchar
+      - name: year_month
+        data_type: varchar
+      - name: day_of_month
+        data_type: bigint
+      - name: day_of_week
+        data_type: bigint
+      - name: day_name
+        data_type: varchar
+      - name: is_weekend
+        data_type: boolean
+      - name: fiscal_year
+        data_type: varchar
+
+  - name: dim_provinces
+    description: "Regional economic centers, provinces, and agro-climatic zones"
+    config:
+      contract:
+        enforced: true
+    columns:
+      - name: province_key
+        data_type: varchar
+        description: "SHA-256 primary surrogate key for market center"
+        tests:
+          - unique
+          - not_null
+      - name: market_center
+        data_type: varchar
+        description: "Name of the wholesale market or economic center"
+        tests:
+          - unique
+          - not_null
+      - name: province_name
+        data_type: varchar
+        description: "Administrative province"
+        tests:
+          - not_null
+      - name: market_hub_role
+        data_type: varchar
+        description: "Economic role in Sri Lanka distribution supply chain"
+      - name: agro_climatic_zone
+        data_type: varchar
+        description: "Agro-climatic classification"
+
+  - name: fct_commodity_prices
+    description: "Daily commodity price fact table with star schema foreign keys and rolling anomaly metrics"
+    config:
+      contract:
+        enforced: true
+    columns:
+      - name: fact_price_key
+        data_type: varchar
+        description: "SHA-256 surrogate primary key for fact record"
+        tests:
+          - unique
+          - not_null
+      - name: commodity_key
+        data_type: varchar
+        description: "Foreign key referencing dim_commodities"
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_commodities')
+                field: commodity_key
+      - name: date_key
+        data_type: integer
+        description: "Foreign key referencing dim_dates"
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_dates')
+                field: date_key
+      - name: province_key
+        data_type: varchar
+        description: "Foreign key referencing dim_provinces"
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_provinces')
+                field: province_key
+      - name: commodity_id
+        data_type: varchar
+        tests:
+          - not_null
+      - name: market_center
+        data_type: varchar
+        tests:
+          - not_null
+      - name: trade_date
+        data_type: date
+        tests:
+          - not_null
+      - name: quality_grade
+        data_type: varchar
+      - name: unit_of_measure
+        data_type: varchar
+      - name: wholesale_price_lkr
+        data_type: decimal(18,2)
+        description: "Wholesale market price in LKR"
+        tests:
+          - not_null
+      - name: retail_price_lkr
+        data_type: decimal(18,2)
+        description: "Retail market price in LKR"
+        tests:
+          - not_null
+      - name: retail_wholesale_spread_lkr
+        data_type: decimal(18,2)
+      - name: retail_markup_pct
+        data_type: decimal(18,2)
+      - name: prev_day_wholesale_price_lkr
+        data_type: decimal(18,2)
+      - name: day_over_day_price_change_pct
+        data_type: decimal(18,2)
+      - name: is_price_spike_anomaly
+        data_type: boolean
+        description: "True if day-over-day price swing exceeded 50%"
+      - name: ingested_at
+        data_type: timestamp

@@ -1,0 +1,125 @@
+version: '3.8'
+
+services:
+  # ==========================================
+  # MinIO: S3-Compatible Object Storage
+  # Buckets: Bronze (raw), Silver (cleansed), Gold (marts), Warehouse (Iceberg)
+  # ==========================================
+  minio:
+    image: minio/minio:latest
+    container_name: iceflow-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: admin
+      MINIO_ROOT_PASSWORD: password123
+    volumes:
+      - minio_storage:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Helper container: Automatically provisions lakehouse buckets
+  minio-init-buckets:
+    image: minio/mc:latest
+    container_name: iceflow-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      /usr/bin/mc alias set local http://minio:9000 admin password123;
+      /usr/bin/mc mb local/bronze || true;
+      /usr/bin/mc mb local/silver || true;
+      /usr/bin/mc mb local/gold || true;
+      /usr/bin/mc mb local/warehouse || true;
+      /usr/bin/mc anonymous set download local/bronze || true;
+      echo 'IceFlow Lakehouse S3 Buckets Initialized Successfully.';
+      exit 0;
+      "
+
+  # ==========================================
+  # Project Nessie: Iceberg Git-Style REST Catalog
+  # Branching, Time-Travel, ACID Isolation
+  # ==========================================
+  nessie:
+    image: projectnessie/nessie:latest
+    container_name: iceflow-nessie
+    restart: unless-stopped
+    ports:
+      - "19120:19120"
+    environment:
+      - nessie.server.default-branch=main
+      - nessie.version.store.type=IN_MEMORY
+      - quarkus.http.port=19120
+    depends_on:
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:19120/api/v1/config"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ==========================================
+  # Ingestion Engine: Python Web Scraper & Iceberg Writer
+  # ==========================================
+  ingestion:
+    build:
+      context: ./ingestion
+      dockerfile: Dockerfile
+    container_name: iceflow-ingestion
+    restart: "no"
+    depends_on:
+      nessie:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    environment:
+      - S3_ENDPOINT=http://minio:9000
+      - NESSIE_URI=http://nessie:19120/api/v1
+      - AWS_ACCESS_KEY_ID=admin
+      - AWS_SECRET_ACCESS_KEY=password123
+      - AWS_REGION=us-east-1
+      - ICEBERG_WAREHOUSE_S3=s3://warehouse/
+    volumes:
+      - ./bronze_data:/app/bronze_data
+      - ./iceberg_warehouse:/app/iceberg_warehouse
+    command: ["sh", "-c", "python cbsl_scraper.py --start-date 2026-08-01 --end-date 2026-10-21 && python write_to_iceberg.py --branch feature/q3-reconcile"]
+
+  # ==========================================
+  # dbt Transformation Engine: Silver & Gold Star Schema
+  # ==========================================
+  dbt:
+    image: python:3.11-slim-bookworm
+    container_name: iceflow-dbt
+    restart: "no"
+    depends_on:
+      - ingestion
+    environment:
+      - DBT_PROFILES_DIR=/usr/app/dbt
+      - S3_ENDPOINT_HOST=minio:9000
+      - AWS_ACCESS_KEY_ID=admin
+      - AWS_SECRET_ACCESS_KEY=password123
+      - AWS_REGION=us-east-1
+    volumes:
+      - ./dbt_transforms:/usr/app/dbt
+      - ./bronze_data:/usr/app/bronze_data
+      - ./iceberg_warehouse:/usr/app/iceberg_warehouse
+    working_dir: /usr/app/dbt
+    command: >
+      sh -c "
+      pip install --no-cache-dir dbt-core==1.8.0 dbt-duckdb==1.8.0 pyyaml &&
+      dbt run --profiles-dir . &&
+      dbt test --profiles-dir . &&
+      dbt snapshot --profiles-dir .
+      "
+
+volumes:
+  minio_storage:
+    driver: local

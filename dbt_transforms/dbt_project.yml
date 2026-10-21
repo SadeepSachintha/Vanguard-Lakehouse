@@ -1,0 +1,31 @@
+name: 'iceflow_core'
+version: '1.0.0'
+config-version: 2
+
+# Profile to use from profiles.yml
+profile: 'iceflow'
+
+model-paths: ["models"]
+analysis-paths: ["analyses"]
+test-paths: ["tests"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+snapshot-paths: ["snapshots"]
+
+clean-targets:
+  - "target"
+  - "dbt_packages"
+
+models:
+  iceflow_core:
+    staging:
+      +materialized: view
+      +schema: silver
+    marts:
+      +materialized: table
+      +schema: gold
+
+snapshots:
+  iceflow_core:
+    +target_schema: gold
+    +strategy: check

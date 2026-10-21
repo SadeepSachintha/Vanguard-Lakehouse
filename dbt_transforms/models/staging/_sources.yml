@@ -1,0 +1,49 @@
+version: 2
+
+sources:
+  - name: bronze
+    description: "Raw ingested Bronze data residing in MinIO/Iceberg object storage"
+    tables:
+      - name: market_commodities
+        description: "Raw daily market commodity price observations across Sri Lankan economic centers"
+        columns:
+          - name: commodity_id
+            description: "Unique slug identifier for the commodity"
+          - name: commodity_name
+            description: "Human-readable commodity name"
+          - name: category
+            description: "Agricultural/food commodity category"
+          - name: market_center
+            description: "Reporting economic center or wholesale hub"
+          - name: province
+            description: "Province of the reporting market"
+          - name: wholesale_price
+            description: "Raw wholesale price per unit"
+          - name: retail_price
+            description: "Raw retail price per unit"
+          - name: unit
+            description: "Unit of measurement (e.g., Rs/kg)"
+          - name: grade
+            description: "Commercial grade classification"
+          - name: trade_date
+            description: "Date of price reporting"
+          - name: extracted_at
+            description: "UTC extraction timestamp"
+
+      - name: cbsl_forex
+        description: "Raw Central Bank of Sri Lanka (CBSL) daily foreign exchange indicative and commercial rates"
+        columns:
+          - name: currency_code
+            description: "ISO 4217 three-letter currency code"
+          - name: base_currency
+            description: "Base currency denomination (LKR)"
+          - name: indicative_rate
+            description: "Indicative middle exchange rate"
+          - name: buying_rate
+            description: "Commercial bank buying exchange rate"
+          - name: selling_rate
+            description: "Commercial bank selling exchange rate"
+          - name: trade_date
+            description: "Official trading date"
+          - name: extracted_at
+            description: "Extraction timestamp"

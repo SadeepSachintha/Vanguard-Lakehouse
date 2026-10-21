@@ -1,0 +1,63 @@
+name: Lakehouse Data Contracts & Quality Gate CI
+
+on:
+  push:
+    branches: [ main, dev, "feature/**" ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  contract-quality-gate:
+    name: Validate Contracts, Schema Typing & Anomaly Gating
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install Ingestion, dbt & Quality Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r ingestion/requirements.txt
+          pip install dbt-core==1.8.0 dbt-duckdb==1.8.0 pyyaml tabulate
+
+      - name: Run Bronze Scraper & Iceberg Writer
+        run: |
+          python ingestion/cbsl_scraper.py --start-date 2026-08-01 --end-date 2026-10-21 --no-s3
+          python ingestion/write_to_iceberg.py --branch ci-test-branch --maintenance
+
+      - name: Compile and Run dbt Transformations (Silver & Gold)
+        working-directory: ./dbt_transforms
+        run: |
+          dbt compile --profiles-dir .
+          dbt run --profiles-dir .
+
+      - name: Execute dbt Assertions (Referential Integrity, Nullity, Non-Negative Prices)
+        working-directory: ./dbt_transforms
+        run: |
+          dbt test --profiles-dir .
+
+      - name: Execute dbt SCD Type 2 Snapshots
+        working-directory: ./dbt_transforms
+        run: |
+          dbt snapshot --profiles-dir .
+
+      - name: Automated Contract Gateway Verification (Schema Contract & Anomaly Blocker)
+        run: |
+          python contracts/contract_gateways.py \
+            --db dbt_transforms/iceflow_lakehouse.duckdb \
+            --contracts-yml dbt_transforms/models/marts/_marts_models.yml \
+            --threshold 50.0
+
+      - name: Verify Sub-Second OLAP & Time-Travel Audit Query
+        run: |
+          python analytics/query_time_travel_duckdb.py \
+            --db dbt_transforms/iceflow_lakehouse.duckdb \
+            --commodity RICE_SAMBA \
+            --as-of "2026-10-01 00:00:00 UTC"

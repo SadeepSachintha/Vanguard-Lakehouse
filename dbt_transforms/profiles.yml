@@ -1,0 +1,33 @@
+iceflow:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: 'iceflow_lakehouse.duckdb'
+      threads: 4
+      extensions:
+        - httpfs
+        - parquet
+        - icu
+      settings:
+        s3_endpoint: "{{ env_var('S3_ENDPOINT_HOST', 'localhost:9000') }}"
+        s3_access_key_id: "{{ env_var('AWS_ACCESS_KEY_ID', 'admin') }}"
+        s3_secret_access_key: "{{ env_var('AWS_SECRET_ACCESS_KEY', 'password123') }}"
+        s3_use_ssl: false
+        s3_url_style: path
+        s3_region: "{{ env_var('AWS_REGION', 'us-east-1') }}"
+
+    prod:
+      type: duckdb
+      path: 'iceflow_lakehouse_prod.duckdb'
+      threads: 8
+      extensions:
+        - httpfs
+        - parquet
+      settings:
+        s3_endpoint: "{{ env_var('S3_ENDPOINT_HOST', 'minio:9000') }}"
+        s3_access_key_id: "{{ env_var('AWS_ACCESS_KEY_ID', 'admin') }}"
+        s3_secret_access_key: "{{ env_var('AWS_SECRET_ACCESS_KEY', 'password123') }}"
+        s3_use_ssl: false
+        s3_url_style: path
+        s3_region: "{{ env_var('AWS_REGION', 'us-east-1') }}"
