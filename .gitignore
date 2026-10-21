@@ -31,3 +31,17 @@ iceberg_warehouse/
 # IDE
 .idea/
 .vscode/
+
+# Security & Credentials (Never commit real secrets or local envs)
+.env
+.env.*
+*.env.local
+*.pem
+*.key
+*.cert
+credentials.json
+service_account*.json
+
+# Data & local storage
+data/
+*.parquet.tmp
