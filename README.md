@@ -97,21 +97,24 @@ Traditional data platforms frequently dump raw, unvalidated JSON/CSV payloads di
 ## 3. Repository File Structure
 
 ```text
-iceflow-core/
+Vanguard-Lakehouse/
 ├── .github/
 │   └── workflows/
-│       ├── dbt-ci-contract-check.yml   # Continuous contract verification & anomaly gating
+│       ├── data_quality_ci.yml          # End-to-end CI quality gate & chaos testing workflow
+│       ├── dbt-ci-contract-check.yml   # dbt contract verification workflow
 │       └── docker-build.yml             # Docker container validation workflow
 ├── docker-compose.yml                   # MinIO, MinIO Init, Nessie Catalog, Ingestion, dbt
-├── Makefile                             # Orchestration commands
+├── Makefile                             # Automated lakehouse CLI recipes (WAP, DLQ, Chaos, etc.)
 ├── catalog/
 │   ├── nessie-config.env                # Nessie and S3 credentials
-│   └── nessie_branch_manager.py         # Git-style branch creation, commit logs, merges
+│   ├── nessie_branch_manager.py         # Git-style branch creation, commit logs, merges
+│   └── wap_orchestrator.py              # Automated Write-Audit-Publish pattern staging & fast-forward merge
 ├── ingestion/
 │   ├── Dockerfile                       # Containerized ingestion worker
 │   ├── requirements.txt                 # PyIceberg, DuckDB, Boto3, Pydantic dependencies
-│   ├── cbsl_scraper.py                  # CBSL Forex, Commodities & Weather scraper
-│   └── write_to_iceberg.py              # Bronze -> Iceberg format with hidden partitioning
+│   ├── cbsl_scraper.py                  # CBSL Forex, Commodities & Weather scraper with DLQ routing
+│   ├── quarantine_inspector.py          # CLI diagnostic inspector for quarantined Bronze telemetry
+│   └── write_to_iceberg.py              # Bronze -> Iceberg format with row-group sorting & pruning
 ├── dbt_transforms/
 │   ├── dbt_project.yml                  # dbt project configuration
 │   ├── profiles.yml                     # DuckDB & S3 profile
@@ -122,7 +125,9 @@ iceflow-core/
 │   │   ├── staging/
 │   │   │   ├── _sources.yml             # Raw Bronze declarations
 │   │   │   ├── stg_cbsl_forex.sql       # Standardized forex ticks
-│   │   │   └── stg_market_commodities.sql # Standardized commodity prices
+│   │   │   ├── stg_market_commodities.sql # Standardized commodity prices
+│   │   │   ├── stg_cbsl_commodity_prices.sql # Enforced contract staging table
+│   │   │   └── stg_cbsl_commodity_prices.yml # Strict contract specification & constraints
 │   │   └── marts/
 │   │       ├── _marts_models.yml        # Enforced data contracts & constraints
 │   │       ├── dim_commodities.sql      # Conformed commodity dimension
@@ -130,15 +135,32 @@ iceflow-core/
 │   │       ├── dim_provinces.sql        # Market centers & provinces dimension
 │   │       └── fct_commodity_prices.sql # Star-schema fact table
 │   ├── snapshots/
-│   │   └── snap_commodity_grades.sql    # SCD Type 2 history snapshot
+│   │   └── snap_commodity_grades.sql    # SCD Type 2 history snapshot (optimized deduplication)
 │   └── tests/
-│       ├── assert_non_negative_prices.sql # Singular price non-negativity test
-│       └── assert_price_anomaly_threshold.sql # Price volatility test
+│       ├── assert_no_negative_spreads.sql # Singular test: retail >= wholesale spread
+│       ├── assert_non_negative_prices.sql # Singular test: strictly positive pricing
+│       └── assert_price_anomaly_threshold.sql # Singular test: price volatility <= 50%
+├── soda/
+│   ├── checks_commodities.yml           # Soda Core SLA freshness, volume, and anomaly checks
+│   ├── configuration.yml                # Soda Core DuckDB data source configuration
+│   └── soda_runner.py                   # Soda Core executor with Markdown summary export
+├── lakehouse-contracts/
+│   ├── gatekeeper.py                    # Open Data Contract Standard (ODCS) gatekeeper engine
+│   └── schemas/
+│       └── stg_cbsl_commodity_prices.contract.json # Machine-readable ODCS contract schema
 ├── contracts/
 │   ├── contract_gateways.py             # Contract verification & CI merge blocker
-│   └── soda_checks.yml                  # Soda Core / Great Expectations specifications
+│   └── soda_checks.yml                  # Legacy contract check references
+├── tests/
+│   └── chaos_test_suite.py              # 7-scenario Chaos CI defect injection negative-test suite
+├── scripts/
+│   └── run_quality_gate.sh              # Local developer CI test harness script
 └── analytics/
-    └── query_time_travel_duckdb.py      # Sub-second OLAP & Time-Travel audit engine
+    ├── query_time_travel_duckdb.py      # Sub-second OLAP & Time-Travel audit engine
+    ├── generate_quality_report.py       # Automated SLA & Quality Report generator (HTML + MD)
+    └── reports/
+        ├── quality_dashboard.html       # Interactive glassmorphism executive dashboard
+        └── quality_summary.md           # GitHub-ready SLA compliance summary
 ```
 
 ---
@@ -174,17 +196,16 @@ dbt test --profiles-dir .
 dbt snapshot --profiles-dir .
 cd ..
 
-# Step 4: Validate Data Contracts and Quality Gateways
-python contracts/contract_gateways.py \
-  --db dbt_transforms/iceflow_lakehouse.duckdb \
-  --contracts-yml dbt_transforms/models/marts/_marts_models.yml \
-  --threshold 50.0
+# Step 4: Validate Data Contracts, Soda Core, and Chaos Defenses
+make test-contracts
+make test-chaos
 
-# Step 5: Execute Time-Travel Audit Query
-python analytics/query_time_travel_duckdb.py \
-  --db dbt_transforms/iceflow_lakehouse.duckdb \
-  --commodity RICE_SAMBA \
-  --as-of "2026-10-01 00:00:00 UTC"
+# Step 5: Execute Time-Travel Audit Query & Pruning Benchmark
+make time-travel-audit
+make iceberg-benchmark
+
+# Step 6: Generate Executive SLA & Quality Report (HTML + Markdown)
+make quality-report
 ```
 
 ---
