@@ -23,7 +23,8 @@ help:
 	@echo "  make down              - Stop all running lakehouse containers"
 	@echo "  make init-buckets      - Provision MinIO bronze, silver, gold, warehouse buckets"
 	@echo "  make ingest            - Scrape CBSL Forex & market commodities (Bronze)"
-	@echo "  make iceberg-write     - Convert Bronze to Iceberg tables with hidden partitions"
+	@echo "  make iceberg-write     - Convert Bronze to Iceberg tables with hidden partitions & sort clustering"
+	@echo "  make iceberg-benchmark - Run Iceberg row-group min-max pruning benchmark"
 	@echo "  make dbt-run           - Execute dbt transformations (Silver & Gold star schema)"
 	@echo "  make dbt-test          - Run dbt quality assertions & referential integrity tests"
 	@echo "  make dbt-snapshot      - Run dbt SCD Type 2 history snapshots"
@@ -49,7 +50,10 @@ ingest:
 	$(PYTHON) ingestion/cbsl_scraper.py --start-date 2026-08-01 --end-date 2026-10-21 --no-s3
 
 iceberg-write:
-	$(PYTHON) ingestion/write_to_iceberg.py --branch feature/q3-reconcile --maintenance
+	$(PYTHON) ingestion/write_to_iceberg.py --branch feature/q3-reconcile --maintenance --verify-pruning
+
+iceberg-benchmark:
+	$(PYTHON) ingestion/write_to_iceberg.py --verify-pruning
 
 dbt-run:
 	cd dbt_transforms && $(DBT) run --profiles-dir .
