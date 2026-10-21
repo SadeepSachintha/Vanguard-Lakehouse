@@ -16,7 +16,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY cbsl_scraper.py write_to_iceberg.py ./
+COPY cbsl_scraper.py write_to_iceberg.py quarantine_inspector.py ./
 
 ENTRYPOINT ["python"]
 CMD ["cbsl_scraper.py"]

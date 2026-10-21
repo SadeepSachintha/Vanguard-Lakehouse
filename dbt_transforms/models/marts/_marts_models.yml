@@ -129,27 +129,24 @@ models:
         tests:
           - not_null
           - relationships:
-              arguments:
-                to: ref('dim_commodities')
-                field: commodity_key
+              to: ref('dim_commodities')
+              field: commodity_key
       - name: date_key
         data_type: integer
         description: "Foreign key referencing dim_dates"
         tests:
           - not_null
           - relationships:
-              arguments:
-                to: ref('dim_dates')
-                field: date_key
+              to: ref('dim_dates')
+              field: date_key
       - name: province_key
         data_type: varchar
         description: "Foreign key referencing dim_provinces"
         tests:
           - not_null
           - relationships:
-              arguments:
-                to: ref('dim_provinces')
-                field: province_key
+              to: ref('dim_provinces')
+              field: province_key
       - name: commodity_id
         data_type: varchar
         tests:
