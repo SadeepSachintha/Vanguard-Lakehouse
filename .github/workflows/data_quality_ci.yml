@@ -104,15 +104,18 @@ jobs:
           echo "### Executing Chaos defect injection suite (verifying defense gates halt bad data)..."
           python tests/chaos_test_suite.py
 
-      - name: Step 7: Generate Gatekeeper Markdown Report
+      - name: Step 7: Generate Executive SLA & Quality Dashboard Report
         if: always()
         run: |
-          echo "## 🛡️ Vanguard Lakehouse CI Quality Gate Summary" >> $GITHUB_STEP_SUMMARY
-          echo "Commit: \`${{ github.sha }}\` | Ref: \`${{ github.ref }}\`" >> $GITHUB_STEP_SUMMARY
-          if [ "${{ job.status }}" == "success" ]; then
-            echo "### 🚀 Gate Status: PASSED (Merge Permitted)" >> $GITHUB_STEP_SUMMARY
-            echo "All enforced dbt model contracts, negative spread tests, Soda Core statistical checks, and Chaos CI negative tests passed." >> $GITHUB_STEP_SUMMARY
-          else
-            echo "### 🛑 Gate Status: FAILED (Merge Blocked)" >> $GITHUB_STEP_SUMMARY
-            echo "Upstream schema mutation, negative price spread, statistical anomaly, or defensive gate bypass detected. Review the step logs above." >> $GITHUB_STEP_SUMMARY
+          echo "### Generating Executive SLA and Data Quality Reports..."
+          python analytics/generate_quality_report.py
+          if [ -f "analytics/reports/quality_summary.md" ]; then
+            cat analytics/reports/quality_summary.md >> $GITHUB_STEP_SUMMARY
           fi
+
+      - name: Step 8: Upload Interactive Quality Dashboard Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lakehouse-quality-dashboard
+          path: analytics/reports/quality_dashboard.html

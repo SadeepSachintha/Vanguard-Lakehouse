@@ -359,3 +359,27 @@ Min-Max Pruning Efficiency : 88.0% OF ROW GROUPS PRUNED
 DuckDB Query Execution Time: 1.78 ms
 ```
 
+---
+
+## 11. Automated Executive SLA & Data Quality Dashboard
+
+IceFlow Core provides an automated quality reporting engine (`analytics/generate_quality_report.py`) that audits the full Medallion lakehouse and compiles synchronized HTML and Markdown reports:
+
+```bash
+# Generate both HTML Dashboard and Markdown Summary
+make quality-report
+
+# Or generate and automatically open the interactive dashboard in your browser
+python analytics/generate_quality_report.py --open
+```
+
+### Generated Artifacts
+1. **Interactive Glassmorphism Dashboard (`analytics/reports/quality_dashboard.html`):**
+   - Live KPI cards: SLA compliance (100%), Clean observations, Iceberg row-group pruning efficiency, and DLQ counts.
+   - Interactive tab navigation: Data Contracts (ODCS), Quality & SLA Gates, Chaos Defenses, Iceberg Storage, and Ingestion Quarantine DLQ.
+   - Modal inspection drawer for debugging raw quarantined telemetry JSON payloads.
+2. **GitHub-Flavored Markdown Report (`analytics/reports/quality_summary.md`):**
+   - Automatically injected into `$GITHUB_STEP_SUMMARY` during CI runs.
+   - Includes contract tables, Soda checks, referential integrity tests, and sub-second OLAP latency benchmarks.
+
+
