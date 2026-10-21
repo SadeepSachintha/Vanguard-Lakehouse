@@ -15,36 +15,6 @@ jobs:
     name: Automated Data Contract & Quality Gate
     runs-on: ubuntu-latest
 
-    services:
-      minio:
-        image: minio/minio:latest
-        ports:
-          - 9000:9000
-          - 9001:9001
-        env:
-          MINIO_ROOT_USER: admin
-          MINIO_ROOT_PASSWORD: password123
-        options: >-
-          --health-cmd "curl -f http://localhost:9000/minio/health/live || exit 1"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        entrypoint: sh
-        args: ["-c", "minio server /data --console-address :9001"]
-
-      nessie:
-        image: projectnessie/nessie:latest
-        ports:
-          - 19120:19120
-        env:
-          nessie.server.default-branch: main
-          nessie.version.store.type: IN_MEMORY
-        options: >-
-          --health-cmd "curl -f http://localhost:19120/api/v1/config || exit 1"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
     steps:
       - name: Checkout Lakehouse Repository
         uses: actions/checkout@v4
@@ -58,16 +28,10 @@ jobs:
       - name: Install Platform Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install dbt-core==1.8.0 dbt-duckdb==1.8.0 duckdb>=1.0.0 pyarrow pyyaml pydantic tabulate requests boto3
+          pip install -r ingestion/requirements.txt
+          pip install dbt-core==1.8.0 dbt-duckdb==1.8.0 pyyaml tabulate
 
-      - name: "Step 1: Validate dbt Dependencies & Compile Models"
-        working-directory: ./dbt_transforms
-        run: |
-          echo "### Compiling dbt lakehouse project..."
-          dbt deps --profiles-dir . || true
-          dbt compile --profiles-dir .
-
-      - name: "Step 2: Ingestion Validation (Reject Corrupted Bronze Payloads)"
+      - name: "Step 1: Ingestion Validation (Reject Corrupted Bronze Payloads)"
         run: |
           echo "### Ingesting and pre-validating Bronze payloads with Pydantic..."
           python ingestion/cbsl_scraper.py \
@@ -77,6 +41,13 @@ jobs:
           python ingestion/write_to_iceberg.py \
             --branch feature/ci-contract-gate \
             --maintenance
+
+      - name: "Step 2: Validate dbt Dependencies & Compile Models"
+        working-directory: ./dbt_transforms
+        run: |
+          echo "### Compiling dbt lakehouse project..."
+          dbt deps --profiles-dir . || true
+          dbt compile --profiles-dir .
 
       - name: "Step 3: Run dbt Staging Models with Enforced Contracts"
         working-directory: ./dbt_transforms
@@ -119,3 +90,4 @@ jobs:
         with:
           name: lakehouse-quality-dashboard
           path: analytics/reports/quality_dashboard.html
+          if-no-files-found: ignore

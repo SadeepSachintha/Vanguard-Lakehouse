@@ -1,13 +1,13 @@
 # 🛡️ Vanguard Lakehouse Executive SLA & Quality Report
 
-**Audit Timestamp:** `2026-10-21 04:53:35 UTC` | **Platform Health:** `100% HEALTHY`
+**Audit Timestamp:** `2026-10-21 05:09:04 UTC` | **Platform Health:** `100% HEALTHY`
 
 ### 📊 Key Performance & Compliance Indicators
 | Metric | Value | Status | Target SLA |
 | :--- | :--- | :--- | :--- |
 | **Data Contract Compliance** | **`100.0%`** | 🟢 PASS | 100% Enforced |
 | **Clean Fact Observations** | **`4,920` rows** | 🟢 STABLE | Continuous Flow |
-| **Iceberg Row-Group Pruning** | **`90.5%` skipped** | ⚡ SUB-SECOND | &ge; 75% Pruned |
+| **Iceberg Row-Group Pruning** | **`90.9%` skipped** | ⚡ SUB-SECOND | &ge; 75% Pruned |
 | **DuckDB OLAP Latency** | **`1.78 ms`** | ⚡ HIGH PERF | < 100 ms |
 | **Quarantine DLQ Count** | **`2` isolated** | 🛡️ DEFENDED | 0 Leaked to Silver |
 | **Chaos Defenses Trapped** | **`7 / 7` blocked** | 🔒 PROVEN | 100% Interception |
@@ -53,9 +53,9 @@
 ### ⚡ Iceberg Row-Group Pruning Benchmark
 - **Target Table:** `bronze.market_commodities`
 - **Filter:** `commodity_id = 'RICE_SAMBA'`
-- **Total Row Groups:** `148`
-- **Row Groups Skipped (Pruned):** `134`
-- **Pruning Efficiency:** **`90.5%` OF ROW GROUPS PRUNED**
+- **Total Row Groups:** `198`
+- **Row Groups Skipped (Pruned):** `180`
+- **Pruning Efficiency:** **`90.9%` OF ROW GROUPS PRUNED**
 - **DuckDB Query Latency:** **`1.78 ms`**
 
 > **Platform Guarantee:** Sub-second OLAP queries with zero expensive cloud data warehouse compute fees.
