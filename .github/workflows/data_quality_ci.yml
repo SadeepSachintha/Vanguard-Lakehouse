@@ -60,14 +60,14 @@ jobs:
           python -m pip install --upgrade pip
           pip install dbt-core==1.8.0 dbt-duckdb==1.8.0 duckdb>=1.0.0 pyarrow pyyaml pydantic tabulate requests boto3
 
-      - name: Step 1: Validate dbt Dependencies & Compile Models
+      - name: "Step 1: Validate dbt Dependencies & Compile Models"
         working-directory: ./dbt_transforms
         run: |
           echo "### Compiling dbt lakehouse project..."
           dbt deps --profiles-dir . || true
           dbt compile --profiles-dir .
 
-      - name: Step 2: Ingestion Validation (Reject Corrupted Bronze Payloads)
+      - name: "Step 2: Ingestion Validation (Reject Corrupted Bronze Payloads)"
         run: |
           echo "### Ingesting and pre-validating Bronze payloads with Pydantic..."
           python ingestion/cbsl_scraper.py \
@@ -78,20 +78,20 @@ jobs:
             --branch feature/ci-contract-gate \
             --maintenance
 
-      - name: Step 3: Run dbt Staging Models with Enforced Contracts
+      - name: "Step 3: Run dbt Staging Models with Enforced Contracts"
         working-directory: ./dbt_transforms
         run: |
           echo "### Enforcing schema contracts on Staging Silver tier..."
           dbt run --models tag:staging --profiles-dir .
           dbt run --profiles-dir .
 
-      - name: Step 4: Run Singular SQL Tests & Referential Integrity Assertions
+      - name: "Step 4: Run Singular SQL Tests & Referential Integrity Assertions"
         working-directory: ./dbt_transforms
         run: |
           echo "### Executing singular domain assertions and integrity tests..."
           dbt test --profiles-dir .
 
-      - name: Step 5: Execute Soda Core Quality & Anomaly Assertions
+      - name: "Step 5: Execute Soda Core Quality & Anomaly Assertions"
         run: |
           echo "### Running Soda Core statistical anomalies & schema gatekeeper..."
           python soda/soda_runner.py \
@@ -99,12 +99,12 @@ jobs:
             --checks soda/checks_commodities.yml \
             --config soda/configuration.yml
 
-      - name: Step 6: Run Chaos CI Defensive Negative-Test Suite
+      - name: "Step 6: Run Chaos CI Defensive Negative-Test Suite"
         run: |
           echo "### Executing Chaos defect injection suite (verifying defense gates halt bad data)..."
           python tests/chaos_test_suite.py
 
-      - name: Step 7: Generate Executive SLA & Quality Dashboard Report
+      - name: "Step 7: Generate Executive SLA & Quality Dashboard Report"
         if: always()
         run: |
           echo "### Generating Executive SLA and Data Quality Reports..."
@@ -113,7 +113,7 @@ jobs:
             cat analytics/reports/quality_summary.md >> $GITHUB_STEP_SUMMARY
           fi
 
-      - name: Step 8: Upload Interactive Quality Dashboard Artifact
+      - name: "Step 8: Upload Interactive Quality Dashboard Artifact"
         if: always()
         uses: actions/upload-artifact@v4
         with:
