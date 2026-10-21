@@ -27,7 +27,11 @@ with source_data as (
         province_name,
         quality_grade,
         trade_date as effective_date,
-        ingested_at
+        ingested_at,
+        row_number() over (
+            partition by commodity_id, market_center
+            order by trade_date desc, ingested_at desc
+        ) as deduplication_rank
     from {{ ref('stg_market_commodities') }}
 )
 
@@ -41,5 +45,6 @@ select
     effective_date,
     ingested_at
 from source_data
+where deduplication_rank = 1
 
 {% endsnapshot %}

@@ -1,4 +1,4 @@
-.PHONY: help up down init-buckets ingest iceberg-write dbt-run dbt-test dbt-snapshot contract-gate test-contracts soda-scan time-travel-audit olap pipeline clean
+.PHONY: help up down init-buckets ingest iceberg-write dbt-run dbt-test dbt-snapshot contract-gate test-contracts soda-scan time-travel-audit olap pipeline wap-pipeline quarantine-list quarantine-inspect clean
 
 HAS_VENV := $(shell test -f "$(CURDIR)/.venv/bin/python" && echo yes)
 ifeq ($(HAS_VENV),yes)
@@ -13,8 +13,11 @@ help:
 	@echo "=========================================================================="
 	@echo "  Vanguard-Lakehouse: Data Contracts, Quality & Gatekeeping Pipeline"
 	@echo "=========================================================================="
+	@echo "  make wap-pipeline      - Execute automated Write-Audit-Publish (WAP) cycle"
 	@echo "  make test-contracts    - Run local developer CI quality gate CLI harness"
 	@echo "  make soda-scan         - Execute Soda Core schema, SLA, and anomaly checks"
+	@echo "  make quarantine-list   - List all quarantined records in the Bronze DLQ"
+	@echo "  make quarantine-inspect - Inspect specific quarantined record (ID=<quarantine_id>)"
 	@echo "  make up                - Start MinIO and Nessie Catalog containers"
 	@echo "  make down              - Stop all running lakehouse containers"
 	@echo "  make init-buckets      - Provision MinIO bronze, silver, gold, warehouse buckets"
@@ -85,6 +88,19 @@ olap:
 
 pipeline: ingest iceberg-write dbt-run dbt-test dbt-snapshot contract-gate time-travel-audit
 	@echo "🎉 End-to-end IceFlow Core Lakehouse pipeline completed successfully!"
+
+wap-pipeline:
+	$(PYTHON) catalog/wap_orchestrator.py --base main
+
+quarantine-list:
+	$(PYTHON) ingestion/quarantine_inspector.py list
+
+quarantine-inspect:
+	@if [ -z "$(ID)" ]; then \
+		echo "Usage: make quarantine-inspect ID=<quarantine_record_id>"; \
+		exit 1; \
+	fi
+	$(PYTHON) ingestion/quarantine_inspector.py inspect $(ID)
 
 clean:
 	rm -rf bronze_data iceberg_warehouse dbt_transforms/iceflow_lakehouse.duckdb* dbt_transforms/target dbt_transforms/dbt_packages

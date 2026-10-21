@@ -13,21 +13,29 @@ Validates raw payload schema contracts using Pydantic before writing.
 """
 
 import argparse
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 import json
 import os
 import random
 import sys
 from typing import Any, Dict, List, Optional
+import uuid
 
 import pandas as pd
-from pydantic import BaseModel, Field, field_validator
-
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
 
 # ==========================================
 # Pydantic Schemas for Contract Validation
 # ==========================================
+
+class QuarantineRecord(BaseModel):
+    quarantine_id: str
+    dataset_name: str
+    quarantined_at: str
+    failure_reason: str
+    violating_fields: List[str]
+    raw_payload: str
 
 class ForexTick(BaseModel):
     currency_code: str = Field(..., min_length=3, max_length=3)
@@ -120,19 +128,57 @@ WEATHER_STATIONS = [
 ]
 
 
-def generate_historical_dataset(start_date: date, end_date: date) -> Dict[str, List[Dict[str, Any]]]:
+def validate_and_route(
+    raw_payload: Dict[str, Any],
+    schema_cls,
+    dataset_name: str,
+    valid_list: List[Dict[str, Any]],
+    quarantine_list: List[Dict[str, Any]],
+):
+    """
+    Evaluates raw payload against Pydantic contract.
+    Routes conforming records to valid Bronze stream,
+    and corrupted/malformed payloads to Quarantine DLQ tier.
+    """
+    try:
+        instance = schema_cls(**raw_payload)
+        valid_list.append(instance.model_dump())
+    except Exception as e:
+        violating = []
+        if isinstance(e, ValidationError):
+            violating = [str(err.get("loc", ["field"])[0]) for err in e.errors()]
+        q_entry = QuarantineRecord(
+            quarantine_id=str(uuid.uuid4()),
+            dataset_name=dataset_name,
+            quarantined_at=datetime.now(timezone.utc).isoformat(),
+            failure_reason=str(e),
+            violating_fields=violating,
+            raw_payload=json.dumps(raw_payload),
+        )
+        quarantine_list.append(q_entry.model_dump())
+
+
+def generate_historical_dataset(
+    start_date: date,
+    end_date: date,
+    inject_anomalies: bool = False
+) -> Dict[str, Dict[str, List[Dict[str, Any]]]]:
     """
     Generates time-series data covering CBSL Forex, Market Commodities, and Weather.
-    Maintains continuity, seasonal price drifts, and realistic market volatility.
+    Applies Pydantic contract validation at the ingestion boundary and isolates
+    corrupted records into a dedicated Quarantine Dead-Letter Queue (DLQ).
     """
-    forex_records = []
-    commodity_records = []
-    weather_records = []
+    forex_valid = []
+    forex_quarantine = []
+    commodity_valid = []
+    commodity_quarantine = []
+    weather_valid = []
+    weather_quarantine = []
 
     curr_date = start_date
-    now_iso = datetime.utcnow().isoformat() + "Z"
+    now_iso = datetime.now(timezone.utc).isoformat()
 
-    # Seed for deterministic yet realistic variability
+    # Seed for deterministic variability
     random.seed(42)
 
     forex_walk = {c["code"]: c["base_rate"] for c in CURRENCIES}
@@ -156,22 +202,20 @@ def generate_historical_dataset(start_date: date, end_date: date) -> Dict[str, L
                 buying = round(mid - (spread / 2), 4)
                 selling = round(mid + (spread / 2), 4)
 
-                tick = ForexTick(
-                    currency_code=c["code"],
-                    base_currency="LKR",
-                    indicative_rate=mid,
-                    buying_rate=buying,
-                    selling_rate=selling,
-                    trade_date=date_str,
-                    extracted_at=now_iso,
-                )
-                forex_records.append(tick.model_dump())
+                payload = {
+                    "currency_code": c["code"],
+                    "base_currency": "LKR",
+                    "indicative_rate": mid,
+                    "buying_rate": buying,
+                    "selling_rate": selling,
+                    "trade_date": date_str,
+                    "extracted_at": now_iso,
+                }
+                validate_and_route(payload, ForexTick, "cbsl_forex", forex_valid, forex_quarantine)
 
-        # 2. Market Commodities (traded 7 days a week in major economic centers)
+        # 2. Market Commodities
         for c in COMMODITIES_CATALOG:
             for m in MARKET_CENTERS:
-                # Grade changes over time for SCD Type 2 demonstration:
-                # After 2026-09-15, Samba Rice receives official 'Super Grade Premium' classification in Pettah
                 grade = "Standard Grade"
                 if c["id"] == "RICE_SAMBA":
                     if curr_date >= date(2026, 9, 15) and m["name"] == "Pettah Wholesale Market":
@@ -183,8 +227,6 @@ def generate_historical_dataset(start_date: date, end_date: date) -> Dict[str, L
 
                 key = (c["id"], m["name"])
                 base_w, base_r = commodity_walk[key]
-
-                # Market-specific adjustments (Dambulla has lower wholesale, Colombo higher retail)
                 hub_mult = 0.94 if "Dambulla" in m["name"] else (1.05 if "Pettah" in m["name"] else 1.0)
                 price_noise = random.uniform(-0.03, 0.035)
 
@@ -193,20 +235,20 @@ def generate_historical_dataset(start_date: date, end_date: date) -> Dict[str, L
                 new_r = round(new_w * margin, 2)
                 commodity_walk[key] = (new_w, new_r)
 
-                record = MarketCommodityPrice(
-                    commodity_id=c["id"],
-                    commodity_name=c["name"],
-                    category=c["category"],
-                    market_center=m["name"],
-                    province=m["province"],
-                    wholesale_price=new_w,
-                    retail_price=new_r,
-                    unit="Rs/kg",
-                    grade=grade,
-                    trade_date=date_str,
-                    extracted_at=now_iso,
-                )
-                commodity_records.append(record.model_dump())
+                payload = {
+                    "commodity_id": c["id"],
+                    "commodity_name": c["name"],
+                    "category": c["category"],
+                    "market_center": m["name"],
+                    "province": m["province"],
+                    "wholesale_price": new_w,
+                    "retail_price": new_r,
+                    "unit": "Rs/kg",
+                    "grade": grade,
+                    "trade_date": date_str,
+                    "extracted_at": now_iso,
+                }
+                validate_and_route(payload, MarketCommodityPrice, "market_commodities", commodity_valid, commodity_quarantine)
 
         # 3. Weather Observations
         for ws in WEATHER_STATIONS:
@@ -214,23 +256,59 @@ def generate_historical_dataset(start_date: date, end_date: date) -> Dict[str, L
             rain = max(0.0, round(random.expovariate(0.12) - 1.0, 1))
             humidity = min(99.0, max(45.0, round(75.0 + random.uniform(-15, 15), 1)))
 
-            obs = WeatherObservation(
-                station_id=ws["station_id"],
-                province=ws["province"],
-                temperature_celsius=round(ws["base_temp"] + temp_noise, 1),
-                rainfall_mm=rain,
-                humidity_percent=humidity,
-                observation_date=date_str,
-                extracted_at=now_iso,
-            )
-            weather_records.append(obs.model_dump())
+            payload = {
+                "station_id": ws["station_id"],
+                "province": ws["province"],
+                "temperature_celsius": round(ws["base_temp"] + temp_noise, 1),
+                "rainfall_mm": rain,
+                "humidity_percent": humidity,
+                "observation_date": date_str,
+                "extracted_at": now_iso,
+            }
+            validate_and_route(payload, WeatherObservation, "weather_observations", weather_valid, weather_quarantine)
 
         curr_date += timedelta(days=1)
 
+    # Optional Anomaly Injection for Chaos / Quarantine Testing
+    if inject_anomalies:
+        print("⚠️ [CHAOS INJECTION] Injecting corrupted payloads to verify Quarantine routing...")
+        # 1. Corrupted negative price
+        bad_comm = {
+            "commodity_id": "RICE_SAMBA",
+            "commodity_name": "Samba Rice",
+            "category": "Grains & Cereals",
+            "market_center": "Pettah Wholesale Market",
+            "province": "Western",
+            "wholesale_price": -50.0,  # Negative wholesale price (Breach!)
+            "retail_price": 200.0,
+            "unit": "Rs/kg",
+            "grade": "Standard Grade",
+            "trade_date": "2026-10-21",
+            "extracted_at": now_iso,
+        }
+        validate_and_route(bad_comm, MarketCommodityPrice, "market_commodities", commodity_valid, commodity_quarantine)
+
+        # 2. Corrupted invalid currency code
+        bad_forex = {
+            "currency_code": "INVALID_USD_TOO_LONG",
+            "base_currency": "LKR",
+            "indicative_rate": 300.0,
+            "trade_date": "2026-10-21",
+            "extracted_at": now_iso,
+        }
+        validate_and_route(bad_forex, ForexTick, "cbsl_forex", forex_valid, forex_quarantine)
+
     return {
-        "cbsl_forex": forex_records,
-        "market_commodities": commodity_records,
-        "weather_observations": weather_records,
+        "valid": {
+            "cbsl_forex": forex_valid,
+            "market_commodities": commodity_valid,
+            "weather_observations": weather_valid,
+        },
+        "quarantine": {
+            "cbsl_forex": forex_quarantine,
+            "market_commodities": commodity_quarantine,
+            "weather_observations": weather_quarantine,
+        },
     }
 
 
@@ -259,20 +337,21 @@ def get_s3_client():
 
 
 def save_and_upload_dataset(
-    dataset: Dict[str, List[Dict[str, Any]]],
+    dataset: Dict[str, Dict[str, List[Dict[str, Any]]]],
     output_dir: str,
     upload_s3: bool = True,
     bucket_name: str = "bronze"
 ) -> Dict[str, str]:
     """
-    Saves JSON and Parquet files partitioned by dataset and year-month,
-    and uploads to MinIO bronze bucket if configured.
+    Saves valid records to Bronze tier and isolated corrupted records to Quarantine tier.
+    Uploads to MinIO bronze bucket if configured.
     """
     os.makedirs(output_dir, exist_ok=True)
     results = {}
     s3_client = get_s3_client() if upload_s3 else None
 
-    for dataset_name, records in dataset.items():
+    # 1. Process Valid Records (Bronze Tier)
+    for dataset_name, records in dataset.get("valid", {}).items():
         if not records:
             continue
 
@@ -283,59 +362,72 @@ def save_and_upload_dataset(
         dataset_dir = os.path.join(output_dir, dataset_name)
         os.makedirs(dataset_dir, exist_ok=True)
 
-        # Save combined JSON and Parquet
         json_path = os.path.join(dataset_dir, f"{dataset_name}_raw.json")
         parquet_path = os.path.join(dataset_dir, f"{dataset_name}_raw.parquet")
 
         df.drop(columns=["year_month"]).to_json(json_path, orient="records", indent=2)
         df.drop(columns=["year_month"]).to_parquet(parquet_path, index=False, engine="pyarrow")
 
-        print(f"[OK] Saved {len(df)} records to {parquet_path} and {json_path}")
+        print(f"[BRONZE VALID] Saved {len(df)} records to {parquet_path}")
         results[dataset_name] = parquet_path
 
-        # Upload to MinIO S3 Bronze Bucket
         if s3_client:
             try:
-                # Partitioned upload
                 for ym, group in df.groupby("year_month"):
                     s3_prefix = f"{dataset_name}/year_month={ym}/{dataset_name}.parquet"
                     group_parquet = os.path.join(dataset_dir, f"temp_{ym}.parquet")
                     group.drop(columns=["year_month"]).to_parquet(group_parquet, index=False, engine="pyarrow")
-
                     with open(group_parquet, "rb") as f:
-                        s3_client.put_object(
-                            Bucket=bucket_name,
-                            Key=s3_prefix,
-                            Body=f,
-                            ContentType="application/octet-stream",
-                        )
+                        s3_client.put_object(Bucket=bucket_name, Key=s3_prefix, Body=f, ContentType="application/octet-stream")
                     if os.path.exists(group_parquet):
                         os.remove(group_parquet)
-
-                # Also upload latest full snapshot
-                s3_full_key = f"{dataset_name}/latest/{dataset_name}.parquet"
-                with open(parquet_path, "rb") as f:
-                    s3_client.put_object(
-                        Bucket=bucket_name,
-                        Key=s3_full_key,
-                        Body=f,
-                        ContentType="application/octet-stream",
-                    )
-                print(f"[S3 UPLOAD] Uploaded {dataset_name} to s3://{bucket_name}/{s3_full_key}")
+                print(f"[S3 BRONZE] Uploaded {dataset_name} to s3://{bucket_name}/{dataset_name}/")
             except Exception as e:
-                print(f"[WARNING] S3 Upload skipped or failed ({e}). Local files are intact.")
+                print(f"[WARNING] S3 Upload note: {e}")
+
+    # 2. Process Quarantine Records (DLQ Tier)
+    quarantine_base = os.path.join(output_dir, "quarantine")
+    total_quarantined = 0
+    for dataset_name, q_records in dataset.get("quarantine", {}).items():
+        if not q_records:
+            continue
+        total_quarantined += len(q_records)
+        q_dir = os.path.join(quarantine_base, dataset_name)
+        os.makedirs(q_dir, exist_ok=True)
+
+        q_df = pd.DataFrame(q_records)
+        q_jsonl = os.path.join(q_dir, "quarantine.jsonl")
+        q_parquet = os.path.join(q_dir, "quarantine.parquet")
+
+        q_df.to_json(q_jsonl, orient="records", lines=True)
+        q_df.to_parquet(q_parquet, index=False, engine="pyarrow")
+
+        print(f"🛑 [QUARANTINE DLQ] Routed {len(q_df)} corrupted records to {q_jsonl}")
+
+        if s3_client:
+            try:
+                s3_q_key = f"quarantine/{dataset_name}/quarantine.parquet"
+                with open(q_parquet, "rb") as f:
+                    s3_client.put_object(Bucket=bucket_name, Key=s3_q_key, Body=f, ContentType="application/octet-stream")
+                print(f"[S3 QUARANTINE] Uploaded DLQ records to s3://{bucket_name}/{s3_q_key}")
+            except Exception as e:
+                print(f"[WARNING] S3 Quarantine upload note: {e}")
+
+    if total_quarantined == 0:
+        print("✅ [QUARANTINE DLQ] Zero malformed records detected. Ingestion 100% clean.")
 
     return results
 
 
 def main():
-    parser = argparse.ArgumentParser(description="IceFlow Core CBSL & Market Commodity Bronze Scraper")
+    parser = argparse.ArgumentParser(description="IceFlow Core CBSL & Market Commodity Bronze Scraper with Quarantine DLQ")
     parser.add_argument("--start-date", default="2026-08-01", help="Start date (YYYY-MM-DD)")
     parser.add_argument("--end-date", default="2026-10-21", help="End date (YYYY-MM-DD)")
     parser.add_argument("--output-dir", default="./bronze_data", help="Local directory for raw files")
     parser.add_argument("--upload-s3", action="store_true", default=True, help="Upload to MinIO S3 Bronze bucket")
     parser.add_argument("--no-s3", dest="upload_s3", action="store_false", help="Disable MinIO S3 upload")
     parser.add_argument("--bucket", default="bronze", help="Target Bronze S3 bucket name")
+    parser.add_argument("--inject-anomalies", action="store_true", help="Inject corrupted records to test quarantine")
 
     args = parser.parse_args()
 
@@ -345,11 +437,14 @@ def main():
     print(f"=== Starting CBSL & Market Commodity Ingestion ===")
     print(f"Time Window: {s_date} to {e_date} ({ (e_date - s_date).days + 1 } days)")
 
-    dataset = generate_historical_dataset(s_date, e_date)
-    print(f"Generated:")
-    print(f" - CBSL Forex Ticks: {len(dataset['cbsl_forex'])} items")
-    print(f" - Market Commodities: {len(dataset['market_commodities'])} items")
-    print(f" - Weather Observations: {len(dataset['weather_observations'])} items")
+    dataset = generate_historical_dataset(s_date, e_date, inject_anomalies=args.inject_anomalies)
+    valid = dataset["valid"]
+    quarantine = dataset["quarantine"]
+
+    print(f"Ingestion Stream Summary:")
+    print(f" - Valid Forex Ticks: {len(valid['cbsl_forex'])} | Quarantined: {len(quarantine['cbsl_forex'])}")
+    print(f" - Valid Commodities: {len(valid['market_commodities'])} | Quarantined: {len(quarantine['market_commodities'])}")
+    print(f" - Valid Weather: {len(valid['weather_observations'])} | Quarantined: {len(quarantine['weather_observations'])}")
 
     save_and_upload_dataset(
         dataset=dataset,
