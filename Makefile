@@ -1,4 +1,4 @@
-.PHONY: help up down init-buckets ingest iceberg-write dbt-run dbt-test dbt-snapshot contract-gate test-contracts soda-scan time-travel-audit olap pipeline wap-pipeline quarantine-list quarantine-inspect clean
+.PHONY: help up down init-buckets ingest iceberg-write dbt-run dbt-test dbt-snapshot contract-gate test-contracts test-chaos soda-scan time-travel-audit olap pipeline wap-pipeline quarantine-list quarantine-inspect clean
 
 HAS_VENV := $(shell test -f "$(CURDIR)/.venv/bin/python" && echo yes)
 ifeq ($(HAS_VENV),yes)
@@ -15,6 +15,7 @@ help:
 	@echo "=========================================================================="
 	@echo "  make wap-pipeline      - Execute automated Write-Audit-Publish (WAP) cycle"
 	@echo "  make test-contracts    - Run local developer CI quality gate CLI harness"
+	@echo "  make test-chaos        - Execute Chaos CI negative-test defect injection suite"
 	@echo "  make soda-scan         - Execute Soda Core schema, SLA, and anomaly checks"
 	@echo "  make quarantine-list   - List all quarantined records in the Bronze DLQ"
 	@echo "  make quarantine-inspect - Inspect specific quarantined record (ID=<quarantine_id>)"
@@ -67,6 +68,9 @@ contract-gate:
 
 test-contracts:
 	bash scripts/run_quality_gate.sh
+
+test-chaos:
+	$(PYTHON) tests/chaos_test_suite.py
 
 soda-scan:
 	$(PYTHON) soda/soda_runner.py \

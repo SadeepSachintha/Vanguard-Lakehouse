@@ -271,3 +271,61 @@ IceFlow Core enforces a strict contract barrier on every GitHub Actions pull req
 4. **Price Volatility Gate:** Fails the build if any day-over-day price jump exceeds $50\%$ without explicit anomaly classification.
 
 If any test fails, CI immediately exits with code `1`, blocking merge to `main`.
+
+---
+
+## 7. Write-Audit-Publish (WAP) Pattern Orchestration
+
+To prevent unverified transactions and half-baked batch runs from polluting the canonical `main` branch, IceFlow Core features an automated **Write-Audit-Publish (WAP)** orchestrator (`catalog/wap_orchestrator.py`):
+
+```bash
+make wap-pipeline
+```
+
+```text
+1. [WRITE]  Stage writes on isolated branch: `wap/stage-20261021-100800`
+2. [AUDIT]  Execute full verification gauntlet:
+            - dbt Staging Contract Enforcement
+            - Singular SQL Domain Assertions (Negative spreads, boundaries)
+            - Soda Core SLA Freshness, Schema, and Volume Variance Gates
+            - Open Data Contract Gatekeeper (ODCS)
+3. [PUBLISH] If all gates pass: Atomically fast-forward merge staging branch into `main`.
+             If any gate breaches: Abort merge, isolate staging branch, alert CI.
+```
+
+---
+
+## 8. Ingestion Quarantine & Dead-Letter Queue (DLQ)
+
+Upstream scrapers run strict Pydantic contract validation at the Bronze edge before disk serialization. Corrupted payloads (negative prices, invalid ISO currency codes, inverted margins) are intercepted:
+- **Clean data:** Persisted to Bronze Parquet (`s3://bronze/market_commodities/...`).
+- **Malformed data:** Diverted to the **Quarantine Dead-Letter Queue** (`s3://bronze/quarantine/<dataset>/quarantine.jsonl`) with ISO timestamp, root violation reasons, and raw payload retention.
+
+```bash
+# List all quarantined telemetry records
+make quarantine-list
+
+# Inspect deep diagnostic details for a specific quarantined item
+make quarantine-inspect ID=<quarantine_id>
+```
+
+---
+
+## 9. Chaos CI Negative-Test Suite
+
+To mathematically prove that our defensive barriers actually halt corrupted payloads (rather than giving false positives), the platform provides an automated **Chaos CI Negative-Test Suite** (`tests/chaos_test_suite.py`):
+
+```bash
+make test-chaos
+```
+
+The suite injects controlled defects across 7 isolated lakehouse dimensions:
+1. **CHAOS-01 (Quarantine Trap):** Injects negative prices and corrupted currencies into `cbsl_scraper.py`; asserts segregation into DLQ.
+2. **CHAOS-02 (Schema Drift Trap):** Drops required columns and mutates numeric types; asserts ODCS Gatekeeper exits with code 1.
+3. **CHAOS-03 (Negative Spread Trap):** Injects retail < wholesale price inversions; asserts dbt singular test trips.
+4. **CHAOS-04 (Physical Boundary Trap):** Injects non-positive prices; asserts boundary assertion catches violations.
+5. **CHAOS-05 (Volatility Spike Trap):** Injects +158% day-over-day price spike; asserts volatility anomaly gate trips.
+6. **CHAOS-06 (Surrogate Key Trap):** Injects duplicate and NULL surrogate keys; asserts uniqueness/nullity gate blocks merge.
+7. **CHAOS-07 (WAP Abort Trap):** Simulates audit failure on staging branch; asserts fast-forward merge is blocked and `main` is preserved.
+
+> **Verification Rule:** A chaos test passes **only when the platform gate successfully catches and blocks the defect**.

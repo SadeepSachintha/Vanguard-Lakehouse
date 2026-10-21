@@ -99,15 +99,20 @@ jobs:
             --checks soda/checks_commodities.yml \
             --config soda/configuration.yml
 
-      - name: Step 6: Generate Gatekeeper Markdown Report
+      - name: Step 6: Run Chaos CI Defensive Negative-Test Suite
+        run: |
+          echo "### Executing Chaos defect injection suite (verifying defense gates halt bad data)..."
+          python tests/chaos_test_suite.py
+
+      - name: Step 7: Generate Gatekeeper Markdown Report
         if: always()
         run: |
           echo "## 🛡️ Vanguard Lakehouse CI Quality Gate Summary" >> $GITHUB_STEP_SUMMARY
           echo "Commit: \`${{ github.sha }}\` | Ref: \`${{ github.ref }}\`" >> $GITHUB_STEP_SUMMARY
           if [ "${{ job.status }}" == "success" ]; then
             echo "### 🚀 Gate Status: PASSED (Merge Permitted)" >> $GITHUB_STEP_SUMMARY
-            echo "All enforced dbt model contracts, negative spread tests, and Soda Core statistical distribution checks passed." >> $GITHUB_STEP_SUMMARY
+            echo "All enforced dbt model contracts, negative spread tests, Soda Core statistical checks, and Chaos CI negative tests passed." >> $GITHUB_STEP_SUMMARY
           else
             echo "### 🛑 Gate Status: FAILED (Merge Blocked)" >> $GITHUB_STEP_SUMMARY
-            echo "Upstream schema mutation, negative price spread, or statistical anomaly detected. Review the step logs above." >> $GITHUB_STEP_SUMMARY
+            echo "Upstream schema mutation, negative price spread, statistical anomaly, or defensive gate bypass detected. Review the step logs above." >> $GITHUB_STEP_SUMMARY
           fi

@@ -93,14 +93,19 @@ class LakehouseContractValidator:
         for rule in rules:
             rule_name = rule["name"]
             if rule["type"] == "customSql":
-                count = self.con.execute(rule["query"]).fetchone()[0]
-                expected = rule.get("mustBe", 0)
-                if count != expected:
+                try:
+                    count = self.con.execute(rule["query"]).fetchone()[0]
+                    expected = rule.get("mustBe", 0)
+                    if count != expected:
+                        self.errors.append(
+                            f"Quality Rule Violation [{rule_name}]: Expected {expected} breaches, found {count}"
+                        )
+                    else:
+                        self.passed.append(f"Quality rule '{rule_name}' passed ({rule['description']})")
+                except Exception as exc:
                     self.errors.append(
-                        f"Quality Rule Violation [{rule_name}]: Expected {expected} breaches, found {count}"
+                        f"Quality Rule Execution Failure [{rule_name}]: {exc}"
                     )
-                else:
-                    self.passed.append(f"Quality rule '{rule_name}' passed ({rule['description']})")
 
     def run(self) -> int:
         print("==================================================================")
