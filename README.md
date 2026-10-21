@@ -1,6 +1,7 @@
 # IceFlow Core: Enterprise Open Data Lakehouse
 
 [![Lakehouse CI](https://github.com/SadeepSachintha/Vanguard-Lakehouse/actions/workflows/dbt-ci-contract-check.yml/badge.svg)](https://github.com/SadeepSachintha/Vanguard-Lakehouse/actions/workflows/dbt-ci-contract-check.yml)
+[![Data Quality Gate CI](https://github.com/SadeepSachintha/Vanguard-Lakehouse/actions/workflows/data_quality_ci.yml/badge.svg)](https://github.com/SadeepSachintha/Vanguard-Lakehouse/actions/workflows/data_quality_ci.yml)
 [![Docker Build](https://github.com/SadeepSachintha/Vanguard-Lakehouse/actions/workflows/docker-build.yml/badge.svg)](https://github.com/SadeepSachintha/Vanguard-Lakehouse/actions/workflows/docker-build.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
